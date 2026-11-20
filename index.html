@@ -73,6 +73,7 @@
 #ipoteka-calc .ipc-field:last-child { margin-bottom: 0; }
 #ipoteka-calc label { display: block; font-weight: 400; font-size: 13px; margin-bottom: 6px; color: var(--ipc-muted); }
 #ipoteka-calc .ipc-hint { display: block; color: var(--ipc-faint); font-size: 12px; margin-top: 6px; line-height: 1.35; }
+#ipoteka-calc .ipc-hint.ipc-hint-hl { color: var(--ipc-red); font-size: 13px; font-weight: 700; }
 #ipoteka-calc input, #ipoteka-calc select {
   width: 100%; height: 48px; padding: 0 16px; font: inherit; font-size: 15px; color: var(--ipc-text);
   border: 1px solid var(--ipc-field-line); border-radius: 12px; background: var(--ipc-field-bg); margin: 0;
@@ -358,7 +359,7 @@
         <div class="ipc-field">
           <label for="ipc-price">Стоимость квартиры, ₽</label>
           <input id="ipc-price" type="text" inputmode="numeric" autocomplete="off">
-          <span class="ipc-hint">Базовая цена без скидки</span>
+          <span class="ipc-hint ipc-hint-hl">Цена со скидкой</span>
         </div>
         <div class="ipc-field">
           <label for="ipc-finish">Отделка, ₽</label>
@@ -937,6 +938,10 @@
     // вариант 2 — ПВ клиента не растёт (P × h), застройщик добавляет остальное до pv итоговой стоимости: P × h / (1 − pv).
     // on — флажок включён при открытии, variant — вариант по умолчанию
     addPv: { pv: 0.201, on: true, variant: 1 },
+    // Стоимость в поле — уже цена с максимальной скидкой: скидки на квартиру нет (поле скрыто), свои скидки программ не применяются
+    noDiscount: true,
+    // Программы, которых нет на этом сайте (часть названия, льготная ставка, тип)
+    excludePrograms: [{ name: '(Совком)', r1: 0.044, type: 'Ипотека для всех' }],
     // Агентская скидка (купон) по проектам: варианты списка, ₽ (по умолчанию — «нет»). Вычитается из итоговой цены в конце
     coupons: {
       'ДНК 2 оч.': [[50000, 'студия'], [80000, '1-комн'], [100000, '2-комн'], [130000, '3/4 комн']]
@@ -1009,9 +1014,19 @@
     });
     return out;
   }
+  // На этом сайте — только программы без субсидии застройщика (M = 0), без траншевой ипотеки
+  // и без программ из CONFIG.excludePrograms (Ипотека для всех 4,4% Совком)
+  function excluded(p) {
+    return (CONFIG.excludePrograms || []).some(function (x) {
+      return p.name.toLowerCase().indexOf(x.name.toLowerCase()) >= 0 && (x.r1 == null || Math.abs(p.r1 - x.r1) < 1e-9) && (!x.type || p.type === x.type);
+    });
+  }
   function normalize(raw) {
-    var programs = core.parsePrograms(raw.programs).concat(core.parseCombo(raw.combo), core.parseTranche(raw.tranche, { n: 3 }));
-    return core.finishData(splitPvSaving(programs), raw);
+    var programs = core.parsePrograms(raw.programs).concat(core.parseCombo(raw.combo))
+      .filter(function (p) { return !p.sub && !p.tranche && p.type !== TRANCHE && !excluded(p); });
+    var d = core.finishData(splitPvSaving(programs), raw);
+    d.types = d.types.filter(function (t) { return t !== TRANCHE && programs.some(function (p) { return p.type === t; }); });
+    return d;
   }
   function gviz(sheet, range, signal) {
     var url = 'https://docs.google.com/spreadsheets/d/' + CONFIG.sheetId + '/gviz/tq?tqx=out:json&headers=0&sheet=' +
@@ -1050,7 +1065,15 @@
   }
 
   /* ================== РАСЧЁТ — calc-core.js ================== */
-  function computeStd(D, inp) { return core.compute(D, inp, { pvSaving: CONFIG.pvSaving, programDiscounts: splitDiscounts() }); }
+  // CONFIG.noDiscount: свои скидки программ (RULES.programDiscounts) не применяются — в поле уже цена с макс. скидкой
+  function coreCompute(D, inp, opt) {
+    if (!CONFIG.noDiscount) return core.compute(D, inp, opt);
+    var saved = core.RULES.programDiscounts;
+    core.RULES.programDiscounts = [];
+    try { return core.compute(D, Object.assign({}, inp, { disc: 0 }), Object.assign({}, opt, { programDiscounts: [] })); }
+    finally { core.RULES.programDiscounts = saved; }
+  }
+  function computeStd(D, inp) { return coreCompute(D, inp, { pvSaving: CONFIG.pvSaving, programDiscounts: splitDiscounts() }); }
   function compute(D, inp) { return inp.addPv ? computeAddPv(D, inp, inp.addPv) : computeStd(D, inp); }
 
   /* ================== «ДОБАВИМ НА ПВ» ==================
@@ -1076,7 +1099,7 @@
   function computeAddPv(D, inp, variant) {
     var T = CONFIG.addPv.pv, BT = inp.base + inp.finish;
     // шаг 1 — обычный расчёт при ПВ 20,1%: цена со скидкой P и применимость программы (субсидия ≤ скидки, ограничения)
-    var A = core.compute(D, Object.assign({}, inp, { pv: core.roundup0(BT * T), prog: null, flt: null }), { programDiscounts: splitDiscounts() });
+    var A = coreCompute(D, Object.assign({}, inp, { pv: core.roundup0(BT * T), prog: null, flt: null }), { programDiscounts: splitDiscounts() });
     var fam = byKids(inp.type);
     var list = D.programs.filter(function (p) { return p.projects.indexOf(inp.project) >= 0 && p.type === inp.type && (!fam || p.kids === inp.kids); });
     var saveName = CONFIG.pvSaving && CONFIG.pvSaving[0] ? CONFIG.pvSaving[0].name : null;
@@ -1278,7 +1301,7 @@
     }).join('');
   }
   // Подпись скидки: «скидка 14%» или «скидка 14%+купон на 50 000 руб.»
-  function discLabel(r) { return 'скидка ' + pct1(r.disc) + (r.coupon ? '+купон на ' + nf0.format(r.coupon) + ' руб.' : ''); }
+  function discLabel(r) { if (CONFIG.noDiscount) return r.coupon ? 'купон на ' + nf0.format(r.coupon) + ' руб.' : ''; return'скидка ' + pct1(r.disc) + (r.coupon ? '+купон на ' + nf0.format(r.coupon) + ' руб.' : ''); }
 
   function render() {
     syncCoupon();
@@ -1288,8 +1311,9 @@
       '&disc=' + p15(inp.disc * 100) + '&price=' + inp.base + '&finish=' + inp.finish + '&kids=' + encodeURIComponent(inp.kids);
     el.kids.disabled = !byKids(inp.type);
     // Траншевая: скидка берётся из листа по каждой программе — поле «Скидка на квартиру» скрываем
-    $('ipc-disc-f').hidden = inp.type === TRANCHE;
-    el.disc.closest('.ipc-row2').style.display = inp.type === TRANCHE && !couponsOf(inp.project) ? 'none' : '';
+    var noDiscF = CONFIG.noDiscount || inp.type === TRANCHE;
+    $('ipc-disc-f').hidden = noDiscF;
+    el.disc.closest('.ipc-row2').style.display = noDiscF && !couponsOf(inp.project) ? 'none' : '';
     el.title.textContent = 'Все программы: ' + inp.project + ', ' + inp.type.toLowerCase() + (inp.addPv ? ' · «Добавим на ПВ», вариант ' + inp.addPv : '');
     syncAddPv(inp);
 
@@ -1372,7 +1396,7 @@
     var ap = r.addPv;
     if (ap) {
       add('Цена квартиры со скидкой', rub(ap.P));
-      add('Скидка', (r.coupon ? discLabel(r).replace(/^скидка /, '') : pct1(r.disc)) + ' · ' + rub(inp.base + inp.finish - ap.P));
+      if (!CONFIG.noDiscount || r.coupon) add(CONFIG.noDiscount ? 'Агентская скидка (купон)' : 'Скидка', (r.coupon ? discLabel(r).replace(/^скидка /, '') : pct1(r.disc)) + ' · ' + rub(inp.base + inp.finish - ap.P));
       add('ПВ от застройщика («Добавим на ПВ»)', rub(ap.dev) + ' · ' + pct1(ap.devShare) + ' ПВ');
       add('Итоговая стоимость квартиры', rub(r.price), true);
       add('ПВ клиента', rub(ap.cl) + ' · ' + pct1(r.price ? ap.cl / r.price : 0), true);
@@ -1380,7 +1404,7 @@
       add('Итоговый ПВ (клиент + застройщик)', rub(ap.tot) + ' · ' + pct1(r.price ? ap.tot / r.price : 0));
     } else {
       add('Итоговая цена квартиры', rub(r.price), true);
-      add('Итоговая скидка', (r.coupon ? discLabel(r).replace(/^скидка /, '') : pct1(r.disc)) + ' · ' + rub(inp.base + inp.finish - r.price));
+      if (!CONFIG.noDiscount || r.coupon) add(CONFIG.noDiscount ? 'Агентская скидка (купон)' : 'Итоговая скидка',(r.coupon ? discLabel(r).replace(/^скидка /, '') : pct1(r.disc)) + ' · ' + rub(inp.base + inp.finish - r.price));
       add('Минимальный ПВ', rub(r.mpvr));
       add('Первоначальный взнос в расчёте', rub(r.pv) + ' · ' + pct1(r.price ? r.pv / r.price : 0), true);
     }
@@ -1623,9 +1647,9 @@
     var add = function (k, v, strong) { rows.push('<dt' + (strong ? ' class="ipc-strong"' : '') + '>' + k + '</dt><dd' + (strong ? ' class="ipc-strong"' : '') + '>' + v + '</dd>'); };
     add('Проект', esc(inp.project));
     if (flat) add('Номер квартиры', esc(flat));
-    add('Стоимость квартиры', rub(inp.base), true);
+    add(CONFIG.noDiscount ? 'Цена квартиры со скидкой' : 'Стоимость квартиры', rub(inp.base), true);
     if (inp.finish) add('Отделка', rub(inp.finish));
-    if (inp.type !== TRANCHE) add('Скидка на квартиру', pct(inp.disc)); // у траншевой скидка своя у каждой программы
+    if (inp.type !== TRANCHE && !CONFIG.noDiscount) add('Скидка на квартиру', pct(inp.disc)); // у траншевой скидка своя у каждой программы
     if (inp.coupon) add('Агентская скидка (купон)', nf0.format(inp.coupon) + ' руб.');
     add('Тип ипотеки', esc(inp.type));
     if (byKids(inp.type)) add('Количество детей', esc(inp.kids));
