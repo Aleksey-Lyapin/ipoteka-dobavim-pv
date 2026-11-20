@@ -107,6 +107,7 @@
 #ipoteka-calc .ipc-check { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; font-size: 15px; color: var(--ipc-text); margin: 0 0 10px; }
 #ipoteka-calc .ipc-check input { width: 20px; height: 20px; margin: 0; padding: 0; accent-color: var(--ipc-red); cursor: pointer; flex-shrink: 0; }
 #ipoteka-calc .ipc-addpv { background: var(--ipc-bg-soft); border-radius: 16px; padding: 14px 16px; }
+#ipoteka-calc #ipc-addpv-l { font-size: 15px; font-weight: 700; color: var(--ipc-text); margin-bottom: 10px; }
 #ipoteka-calc .ipc-cmp, .ipc-report .ipc-cmp { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; margin-top: 16px; }
 #ipoteka-calc .ipc-cmp > div { padding: 6px 0 6px 14px; border-bottom: 1px solid var(--ipc-line); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 14px; }
 #ipoteka-calc .ipc-cmp > .ipc-c-k { text-align: left; padding-left: 0; color: var(--ipc-muted); white-space: normal; }
@@ -388,7 +389,9 @@
         <span class="ipc-hint" id="ipc-kids-hint">Для семейной и комбо-ипотеки: определяет ставку, льготный период и лимит кредита</span>
       </div>
       <div class="ipc-field ipc-addpv" id="ipc-addpv-f">
-        <label class="ipc-check"><input type="checkbox" id="ipc-addpv"><span>Добавим на ПВ</span></label>
+        <!-- Опция «Добавим на ПВ» включена всегда: флажок скрыт (CONFIG.addPv.on) -->
+        <input type="checkbox" id="ipc-addpv" hidden>
+        <label id="ipc-addpv-l">Добавим на ПВ</label>
         <div class="ipc-seg" id="ipc-addpv-v" role="group" aria-label="Вариант «Добавим на ПВ»">
           <button type="button" data-v="1" aria-pressed="true">Вариант 1: ПВ поровну</button>
           <button type="button" data-v="2" aria-pressed="false">Вариант 2: ПВ клиента не растёт</button>
@@ -943,9 +946,8 @@
     // Программы, которых нет на этом сайте (часть названия, льготная ставка, тип)
     excludePrograms: [{ name: '(Совком)', r1: 0.044, type: 'Ипотека для всех' }],
     // Агентская скидка (купон) по проектам: варианты списка, ₽ (по умолчанию — «нет»). Вычитается из итоговой цены в конце
-    coupons: {
-      'ДНК 2 оч.': [[50000, 'студия'], [80000, '1-комн'], [100000, '2-комн'], [130000, '3/4 комн']]
-    },
+    // На этом сайте купона нет (по просьбе пользователя)
+    coupons: {},
     // Накопление ПВ в период строительства — только на этом сайте (ekb-msk и calc_… не затрагивает): Совком 4,4% —
     // сразу ПВ 5%, остаток до мин. ПВ программы (20,1%) — равными платежами по целым месяцам до даты проекта (вместе с платежом по ипотеке);
     // льготная ставка — до этой даты, потом основная. Кредит — как при ПВ 20,1%
@@ -1201,7 +1203,7 @@
     fPaymin: $('ipc-f-paymin'), fPaymax: $('ipc-f-paymax'),
     addPv: $('ipc-addpv'), addPvV: $('ipc-addpv-v'), addPvHint: $('ipc-addpv-hint'), pvHint: $('ipc-pv-hint')
   };
-  el.addPv.checked = !!CONFIG.addPv.on;
+  el.addPv.checked = true; // опция «Добавим на ПВ» всегда включена
   if (!CONFIG.showLogo) $('ipc-logo').hidden = true;
   if (CONFIG.installmentUrl) $('ipc-nav').href = CONFIG.installmentUrl; else $('ipc-nav').hidden = true;
   if (!CONFIG.programsUrl) $('ipc-all').hidden = true;
