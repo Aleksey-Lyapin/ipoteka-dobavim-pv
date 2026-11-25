@@ -388,14 +388,14 @@
         <select id="ipc-kids"></select>
         <span class="ipc-hint" id="ipc-kids-hint">Для семейной и комбо-ипотеки: определяет ставку, льготный период и лимит кредита</span>
       </div>
-      <div class="ipc-field ipc-addpv" id="ipc-addpv-f">
-        <!-- Опция «Добавим на ПВ» включена всегда: флажок скрыт (CONFIG.addPv.on) -->
+      <div class="ipc-field" id="ipc-addpv-f">
+        <!-- Опция «Добавим на ПВ» включена всегда: флажок скрыт; вариант — список (по умолчанию «ПВ поровну») -->
         <input type="checkbox" id="ipc-addpv" hidden>
-        <label id="ipc-addpv-l">Добавим на ПВ</label>
-        <div class="ipc-seg" id="ipc-addpv-v" role="group" aria-label="Вариант «Добавим на ПВ»">
-          <button type="button" data-v="1" aria-pressed="true">Вариант 1: ПВ поровну</button>
-          <button type="button" data-v="2" aria-pressed="false">Вариант 2: ПВ клиента не растёт</button>
-        </div>
+        <label for="ipc-addpv-v">Добавим на ПВ</label>
+        <select id="ipc-addpv-v" autocomplete="off">
+          <option value="1" selected>ПВ поровну</option>
+          <option value="2">ПВ клиента не растёт</option>
+        </select>
         <span class="ipc-hint" id="ipc-addpv-hint"></span>
       </div>
       <div class="ipc-row2">
@@ -945,6 +945,8 @@
     noDiscount: true,
     // Программы, которых нет на этом сайте (часть названия, льготная ставка, тип)
     excludePrograms: [{ name: '(Совком)', r1: 0.044, type: 'Ипотека для всех' }],
+    // Проекты на этом сайте (остальные убраны)
+    projectsOnly: ['ДМД 2 оч.', 'Алиса 1 оч.'],
     // Агентская скидка (купон) по проектам: варианты списка, ₽ (по умолчанию — «нет»). Вычитается из итоговой цены в конце
     // На этом сайте купона нет (по просьбе пользователя)
     coupons: {},
@@ -1025,7 +1027,10 @@
   }
   function normalize(raw) {
     var programs = core.parsePrograms(raw.programs).concat(core.parseCombo(raw.combo))
-      .filter(function (p) { return !p.sub && !p.tranche && p.type !== TRANCHE && !excluded(p); });
+      .filter(function (p) { return !p.sub && !p.tranche && p.type !== TRANCHE && !excluded(p); })
+      // Проекты сайта — только CONFIG.projectsOnly (ДМД 2 оч., Алиса 1 оч.)
+      .map(function (p) { return CONFIG.projectsOnly ? Object.assign({}, p, { projects: p.projects.filter(function (x) { return CONFIG.projectsOnly.indexOf(x) >= 0; }) }) : p; })
+      .filter(function (p) { return p.projects.length; });
     var d = core.finishData(splitPvSaving(programs), raw);
     d.types = d.types.filter(function (t) { return t !== TRANCHE && programs.some(function (p) { return p.type === t; }); });
     return d;
@@ -1211,6 +1216,7 @@
     addPv: $('ipc-addpv'), addPvV: $('ipc-addpv-v'), addPvHint: $('ipc-addpv-hint'), pvHint: $('ipc-pv-hint')
   };
   el.addPv.checked = true; // опция «Добавим на ПВ» всегда включена
+  var ADDPV_NAMES = { 1: 'ПВ поровну', 2: 'ПВ клиента не растёт' };
   if (!CONFIG.showLogo) $('ipc-logo').hidden = true;
   if (CONFIG.installmentUrl) $('ipc-nav').href = CONFIG.installmentUrl; else $('ipc-nav').hidden = true;
   if (!CONFIG.programsUrl) $('ipc-all').hidden = true;
@@ -1323,7 +1329,7 @@
     var noDiscF = CONFIG.noDiscount || inp.type === TRANCHE;
     $('ipc-disc-f').hidden = noDiscF;
     el.disc.closest('.ipc-row2').style.display = noDiscF && !couponsOf(inp.project) ? 'none' : '';
-    el.title.textContent = 'Все программы: ' + inp.project + ', ' + inp.type.toLowerCase() + (inp.addPv ? ' · «Добавим на ПВ», вариант ' + inp.addPv : '');
+    el.title.textContent = 'Все программы: ' + inp.project + ', ' + inp.type.toLowerCase() + (inp.addPv ? ' · «Добавим на ПВ»: ' + ADDPV_NAMES[inp.addPv] : '');
     syncAddPv(inp);
 
     if (!inp.base) {
@@ -1349,37 +1355,15 @@
   function syncAddPv(inp) {
     var on = !!inp.addPv, T = CONFIG.addPv.pv, h = T / 2;
     el.addPvV.hidden = !on;
-    Array.prototype.forEach.call(el.addPvV.children, function (b) { b.setAttribute('aria-pressed', String(+b.getAttribute('data-v') === state.addPvV)); });
+    el.addPvV.value = String(state.addPvV);
     el.addPvHint.textContent = !on ? 'Застройщик добавит половину первоначального взноса ' + pct1(T)
       : inp.addPv === 2
-        ? 'Итоговая стоимость — как в варианте 1. ПВ клиента — ' + pct(h) + ' цены квартиры со скидкой, как без увеличения цены. Застройщик добавляет остальное до ' + pct1(T) + ' итоговой стоимости — больше половины ПВ' +
+        ? 'Итоговая стоимость — как при «ПВ поровну». ПВ клиента — ' + pct(h) + ' цены квартиры со скидкой, как без увеличения цены. Застройщик добавляет остальное до ' + pct1(T) + ' итоговой стоимости — больше половины ПВ' +
           (inp.type === FAMILY ? '. Если ПВ больше ' + pct1(T) + ' из-за лимита кредита — ПВ клиента = (цена со скидкой − кредит) / 2' : '')
         : 'Итоговый ПВ ' + pct1(T) + ' — поровну: половину добавляет застройщик, половину вносит клиент. Итоговая стоимость = цена со скидкой + ПВ застройщика, поэтому ПВ клиента немного больше ' + pct(h) + ' цены со скидкой';
     el.pv.disabled = on;
     el.pv.placeholder = on ? 'по «Добавим на ПВ»' : 'минимальный';
     el.pvHint.textContent = on ? 'ПВ клиента считается по «Добавим на ПВ»' : 'Пусто — минимальный. Меньше минимума — увеличится автоматически';
-  }
-
-  // Сравнение вариантов «Добавим на ПВ» по выбранной программе
-  function addPvCompare(inp, r) {
-    var other = computeAddPv(D, Object.assign({}, inp, { prog: null, flt: null }), r.addPv.variant === 1 ? 2 : 1).rows[r.n - 1];
-    var v = {}; v[r.addPv.variant] = r; v[other.addPv ? other.addPv.variant : 0] = other;
-    var r1 = v[1], r2 = v[2];
-    if (!r1 || !r2 || !r1.addPv || !r2.addPv) return '';
-    var cells = [];
-    var row = function (k, f, strong) {
-      cells.push('<div class="ipc-c-k' + (strong ? ' ipc-c-h' : '') + '">' + k + '</div>');
-      [r1, r2].forEach(function (x, i) { cells.push('<div class="' + (i + 1 === r.addPv.variant ? 'ipc-c-on' : '') + (strong ? ' ipc-c-h' : '') + '">' + f(x) + '</div>'); });
-    };
-    cells.push('<div class="ipc-c-k ipc-c-h"></div><div class="ipc-c-h' + (r.addPv.variant === 1 ? ' ipc-c-on' : '') + '">Вариант 1</div><div class="ipc-c-h' + (r.addPv.variant === 2 ? ' ipc-c-on' : '') + '">Вариант 2</div>');
-    row('ПВ клиента', function (x) { return rub(x.addPv.cl); }, true);
-    row('ПВ от застройщика', function (x) { return rub(x.addPv.dev); });
-    row('Доля застройщика в ПВ', function (x) { return pct1(x.addPv.devShare); });
-    row('Итоговая стоимость', function (x) { return rub(x.price); });
-    row('Сумма кредита', function (x) { return rub(x.loan); });
-    row(r.tranches ? 'Платёж после 1-го транша' : r.gm ? 'Платёж в льготный период' : 'Ежемесячный платёж', function (x) { return rub(x.p1); }, true);
-    if (r.gm && !r.tranches) row(r.combo ? 'Платёж с ' + (r.gm / 12 + 1) + '-го года' : 'Платёж после льготного периода', function (x) { return rub(x.p2); });
-    return '<div class="ipc-cmp-t">Сравнение вариантов «Добавим на ПВ»</div><div class="ipc-cmp">' + cells.join('') + '</div>';
   }
 
   function renderDetail(inp, res) {
@@ -1407,7 +1391,7 @@
     if (ap) {
       add('Цена квартиры со скидкой', rub(ap.P));
       if (!CONFIG.noDiscount || r.coupon) add(CONFIG.noDiscount ? 'Агентская скидка (купон)' : 'Скидка', (r.coupon ? discLabel(r).replace(/^скидка /, '') : pct1(r.disc)) + ' · ' + rub(inp.base + inp.finish - ap.P));
-      add('ПВ от застройщика («Добавим на ПВ»)', rub(ap.dev) + ' · ' + pct1(ap.devShare) + ' ПВ');
+      add('ПВ от застройщика («Добавим на ПВ»)', rub(ap.dev));
       add('Итоговая стоимость квартиры', rub(r.price), true);
       add('ПВ клиента', rub(ap.cl) + ' · ' + pct1(r.price ? ap.cl / r.price : 0), true);
       if (ap.cl !== ap.cl0 && !r.pvUp) add('ПВ клиента без увеличения цены', rub(ap.cl0) + ' · ' + (ap.cl > ap.cl0 ? '+' : '−') + rub(Math.abs(ap.cl - ap.cl0)));
@@ -1419,6 +1403,14 @@
       add('Первоначальный взнос в расчёте', rub(r.pv) + ' · ' + pct1(r.price ? r.pv / r.price : 0), true);
     }
     add('Сумма кредита', rub(r.loan), true);
+    // «Добавим на ПВ»: под суммой кредита — доля застройщика в ПВ и платёж (вместо блока сравнения вариантов)
+    if (ap) {
+      add('Доля застройщика в ПВ', pct1(ap.devShare));
+      if (grace) {
+        add(step ? 'Платёж первые ' + period(r.gm) : 'Платёж в льготный период', rub(r.p1), true);
+        add(step ? 'Платёж с ' + (r.gm / 12 + 1) + '-го года' : 'Платёж после льготного периода', rub(r.p2));
+      } else add('Ежемесячный платёж', rub(r.p1), true);
+    }
     if (r.combo) {
       add('Семейная часть кредита', rub(r.famLoan));
       add('Базовая часть кредита', rub(r.baseLoan));
@@ -1449,7 +1441,6 @@
           (grace ? '<div><div class="ipc-k">' + (step ? 'Платёж с ' + (r.gm / 12 + 1) + '-го года' : save ? 'Платёж после ' + endRu : 'Платёж после льготного периода') + '</div><div class="ipc-v ipc-sm">' + rub(r.p2) + '</div></div>' : '')) +
       '</div></div>';
     el.detail.innerHTML = head + '<dl>' + dl.join('') + '</dl>' + (r.note ? '<div class="ipc-note">' + esc(r.note) + '</div>' : '') +
-      (ap ? addPvCompare(inp, r) : '') +
       '<div class="ipc-eye-row">' + eyeBtn('detail', state.overD, 'переплату и итого выплат банку') + '</div>';
   }
 
@@ -1663,7 +1654,7 @@
     if (inp.coupon) add('Агентская скидка (купон)', nf0.format(inp.coupon) + ' руб.');
     add('Тип ипотеки', esc(inp.type));
     if (byKids(inp.type)) add('Количество детей', esc(inp.kids));
-    if (inp.addPv) add('Добавим на ПВ', 'вариант ' + inp.addPv + (inp.addPv === 2 ? ' (ПВ клиента не растёт)' : ' (ПВ поровну)'));
+    if (inp.addPv) add('Добавим на ПВ', ADDPV_NAMES[inp.addPv]);
     else add('Первоначальный взнос', inp.pv ? rub(inp.pv) : 'минимальный');
     add('Срок', inp.term ? years(inp.term) : 'максимальный');
 
@@ -1726,10 +1717,7 @@
     el.fBank.addEventListener('change', render);
     el.coupon.addEventListener('change', render);
     el.addPv.addEventListener('change', function () { state.prog = null; render(); });
-    el.addPvV.addEventListener('click', function (e) {
-      var b = e.target.closest('button[data-v]'); if (!b) return;
-      state.addPvV = +b.getAttribute('data-v'); render();
-    });
+    el.addPvV.addEventListener('change', function () { state.addPvV = +el.addPvV.value === 2 ? 2 : 1; render(); });
     $('ipc-f-reset').addEventListener('click', function () {
       [el.fBank, el.fRate, el.fPmin, el.fPmax, el.fPv, el.fPaymin, el.fPaymax].forEach(function (x) { x.value = ''; });
       render();
