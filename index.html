@@ -1124,11 +1124,15 @@
       // вариант 1: ПВ клиента и застройщика равны (итоговый ПВ — до чётной суммы, +1 ₽); вариант 2: ПВ клиента не растёт, разницу добавляет застройщик
       var up = b.pv > s.tot + 0.5;
       if (up && variant !== 2 && b.pv % 2) b = calc(b.pv + 1);
-      var cl = variant === 2 ? Math.min(s.cl0, b.pv) : b.pv / 2, dev = b.pv - cl;
+      // Семейная ипотека, вариант 2: если уже при цене со скидкой P ПВ больше 20,1% из-за лимита кредита (P − лимит > 20,1% × P),
+      // ПВ клиента = (P − сумма кредита) / 2, остальное — застройщик
+      var famLim = variant === 2 && inp.type === FAMILY && a.price - p.lim > core.roundup0(a.price * T);
+      var cl = variant === 2 ? (famLim ? core.round0((a.price - b.loan) / 2) : Math.min(s.cl0, b.pv)) : b.pv / 2, dev = b.pv - cl;
       var notes = [];
       if (a.note && !PV_NOTE.test(a.note)) notes.push(a.note);
       if (b.note && !PV_NOTE.test(b.note) && notes.indexOf(b.note) < 0) notes.push(b.note);
-      if (up) notes.push('ПВ увеличен из-за лимита кредита — ' + (variant === 2 ? 'разницу добавляет застройщик' : 'разница поровну у клиента и застройщика'));
+      if (famLim) notes.push('ПВ больше ' + pct1(T) + ' из-за лимита кредита: ПВ клиента = (цена со скидкой − кредит) / 2, остальное добавляет застройщик');
+      else if (up) notes.push('ПВ увеличен из-за лимита кредита — ' + (variant === 2 ? 'разницу добавляет застройщик' : 'разница поровну у клиента и застройщика'));
       return Object.assign({}, b, {
         n: a.n, name: a.name, bank: a.bank, title: a.title, sub: a.sub, subp: a.subp, subr: b.loan * a.sub,
         disc: a.disc, coupon: a.coupon, pdisc: a.pdisc, note: notes.join('. '),
@@ -1348,7 +1352,8 @@
     Array.prototype.forEach.call(el.addPvV.children, function (b) { b.setAttribute('aria-pressed', String(+b.getAttribute('data-v') === state.addPvV)); });
     el.addPvHint.textContent = !on ? 'Застройщик добавит половину первоначального взноса ' + pct1(T)
       : inp.addPv === 2
-        ? 'Итоговая стоимость — как в варианте 1. ПВ клиента — ' + pct(h) + ' цены квартиры со скидкой, как без увеличения цены. Застройщик добавляет остальное до ' + pct1(T) + ' итоговой стоимости — больше половины ПВ'
+        ? 'Итоговая стоимость — как в варианте 1. ПВ клиента — ' + pct(h) + ' цены квартиры со скидкой, как без увеличения цены. Застройщик добавляет остальное до ' + pct1(T) + ' итоговой стоимости — больше половины ПВ' +
+          (inp.type === FAMILY ? '. Если ПВ больше ' + pct1(T) + ' из-за лимита кредита — ПВ клиента = (цена со скидкой − кредит) / 2' : '')
         : 'Итоговый ПВ ' + pct1(T) + ' — поровну: половину добавляет застройщик, половину вносит клиент. Итоговая стоимость = цена со скидкой + ПВ застройщика, поэтому ПВ клиента немного больше ' + pct(h) + ' цены со скидкой';
     el.pv.disabled = on;
     el.pv.placeholder = on ? 'по «Добавим на ПВ»' : 'минимальный';
