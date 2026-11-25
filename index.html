@@ -1131,8 +1131,8 @@
       var notes = [];
       if (a.note && !PV_NOTE.test(a.note)) notes.push(a.note);
       if (b.note && !PV_NOTE.test(b.note) && notes.indexOf(b.note) < 0) notes.push(b.note);
-      if (famLim) notes.push('ПВ больше ' + pct1(T) + ' из-за лимита кредита: ПВ клиента = (цена со скидкой − кредит) / 2, остальное добавляет застройщик');
-      else if (up) notes.push('ПВ увеличен из-за лимита кредита — ' + (variant === 2 ? 'разницу добавляет застройщик' : 'разница поровну у клиента и застройщика'));
+      // при famLim подписи нет (по просьбе пользователя)
+      if (up && !famLim) notes.push('ПВ увеличен из-за лимита кредита — ' + (variant === 2 ? 'разницу добавляет застройщик' : 'разница поровну у клиента и застройщика'));
       return Object.assign({}, b, {
         n: a.n, name: a.name, bank: a.bank, title: a.title, sub: a.sub, subp: a.subp, subr: b.loan * a.sub,
         disc: a.disc, coupon: a.coupon, pdisc: a.pdisc, note: notes.join('. '),
